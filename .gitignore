@@ -22,7 +22,6 @@ dist/
 
 # Go modules
 go.sum
-go.mod
 
 # Build artifacts
 bin/
