@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 // Credentials stores the OAuth token information
@@ -100,6 +102,85 @@ func (s *Server) SaveCredentials() error {
 
 	log.Printf("✓ Credentials saved to %s", s.credFile)
 	return nil
+}
+
+// ConnectToWebSocket connects to the Joystick TV WebSocket API and listens for events
+func (s *Server) ConnectToWebSocket() error {
+	s.credMutex.RLock()
+	clientID := s.credentials.ClientID
+	clientSecret := s.credentials.ClientSecret
+	s.credMutex.RUnlock()
+
+	if clientID == "" || clientSecret == "" {
+		return fmt.Errorf("missing credentials for WebSocket connection")
+	}
+
+	// Create basic auth token (Client ID:Client Secret in Base64)
+	basicAuth := base64.StdEncoding.EncodeToString([]byte(clientID + ":" + clientSecret))
+
+	// Connect to WebSocket
+	wsURL := fmt.Sprintf("wss://joystick.tv/cable?token=%s", basicAuth)
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 45 * time.Second,
+	}
+
+	ws, _, err := dialer.Dial(wsURL, http.Header{
+		"Sec-WebSocket-Protocol": []string{"actioncable-v1-json"},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to connect to WebSocket: %w", err)
+	}
+	defer ws.Close()
+
+	log.Printf("✓ Connected to Joystick TV WebSocket API")
+
+	// Subscribe to GatewayChannel
+	subscribeMsg := map[string]string{
+		"command":    "subscribe",
+		"identifier": "{\"channel\":\"GatewayChannel\"}",
+	}
+	if err := ws.WriteJSON(subscribeMsg); err != nil {
+		return fmt.Errorf("failed to send subscribe command: %w", err)
+	}
+
+	log.Printf("ℹ️  Sent subscription request to GatewayChannel")
+
+	// Listen for events
+	for {
+		var msg map[string]interface{}
+		if err := ws.ReadJSON(&msg); err != nil {
+			log.Printf("⚠️  WebSocket connection closed: %v", err)
+			return err
+		}
+
+		// Output all events
+		s.outputEvent(msg)
+	}
+}
+
+// outputEvent formats and outputs received events
+func (s *Server) outputEvent(msg map[string]interface{}) {
+	// Check message type
+	msgType, ok := msg["type"].(string)
+	if ok {
+		switch msgType {
+		case "confirm_subscription":
+			log.Printf("✓ Successfully subscribed to GatewayChannel")
+			return
+		case "reject_subscription":
+			log.Printf("❌ Subscription rejected - authentication failed")
+			return
+		}
+	}
+
+	// Output raw event
+	eventJSON, err := json.MarshalIndent(msg, "", "  ")
+	if err != nil {
+		log.Printf("❌ Failed to marshal event: %v", err)
+		return
+	}
+
+	log.Printf("📨 Event received:\n%s", string(eventJSON))
 }
 
 // GenerateState creates a random state string for OAuth CSRF protection
@@ -196,6 +277,14 @@ func (s *Server) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		log.Printf("⚠️  Credentials received but failed to persist: %v", err)
 	}
 
+	// Start WebSocket connection in background
+	go func() {
+		time.Sleep(1 * time.Second) // Give user time to see success page
+		if err := s.ConnectToWebSocket(); err != nil {
+			log.Printf("❌ WebSocket connection error: %v", err)
+		}
+	}()
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprint(w, `
 		<!DOCTYPE html>
@@ -210,6 +299,7 @@ func (s *Server) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		<body>
 			<div class="success">✓ Authentication Successful!</div>
 			<p>Your credentials have been saved and will persist across service restarts.</p>
+			<p>The bot is now listening for events. Check the server logs for incoming events.</p>
 			<p><a href="/status">View Status</a></p>
 		</body>
 		</html>
@@ -402,6 +492,21 @@ func main() {
 	// Load existing credentials if available
 	if err := server.LoadCredentials(); err != nil {
 		log.Printf("⚠️  Failed to load credentials: %v", err)
+	}
+
+	// Check if credentials exist and connect to WebSocket
+	server.credMutex.RLock()
+	hasCredentials := server.credentials.AccessToken != "" && server.credentials.ClientID != ""
+	server.credMutex.RUnlock()
+
+	if hasCredentials {
+		log.Printf("ℹ️  Stored credentials found, connecting to WebSocket API...")
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			if err := server.ConnectToWebSocket(); err != nil {
+				log.Printf("❌ WebSocket connection error: %v", err)
+			}
+		}()
 	}
 
 	// Register HTTP handlers

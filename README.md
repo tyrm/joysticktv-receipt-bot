@@ -12,6 +12,8 @@ A simple Go web server that authenticates with the Joystick TV API using OAuth2 
 - 🛡️ CSRF protection with state validation
 - 🕐 Token expiration tracking
 - 🌐 Simple web UI for authentication and status checking
+- 🔌 WebSocket connection for real-time event listening
+- 📨 Automatic event output to logs (chat messages, follows, tips, user presence, etc.)
 
 ## Prerequisites
 
@@ -128,24 +130,45 @@ The server provides verbose logging with clear indicators:
 - ℹ️ Information messages
 - ⚠️ Warning messages
 
+## WebSocket Event Listening
+
+Once authenticated, the bot automatically connects to the Joystick TV WebSocket API and starts listening for events. All events are logged to the console with the 📨 indicator.
+
+**Event Types:**
+- **Chat Messages** - User-generated chat with text, author info, and metadata
+- **User Presence** - When users enter/leave chat (`enter_stream` or `leave_stream`)
+- **Stream Events** - Tips, follows, device connections, stream start/stop
+- **Ping Messages** - Connection heartbeats (unix timestamps)
+
+The bot will automatically reconnect on startup if stored credentials exist.
+
 ## Next Steps
 
-After successful authentication, you can:
+After successful authentication, the bot:
 
-1. Access the saved access token programmatically
-2. Use the token with Joystick TV API endpoints
-3. Implement token refresh logic before expiration
-4. Connect to the WebSocket endpoint for real-time events
+1. Automatically connects to the WebSocket endpoint
+2. Starts listening for real-time events from your stream
+3. Logs all events to the console for monitoring
+4. Persists credentials for automatic recovery on restart
+
+You can extend the bot by:
+- Processing events programmatically
+- Sending messages back to chat
+- Implementing custom command handling
+- Storing event data in a database
 
 ## API Endpoints (Joystick TV)
 
-After authentication, you can use these Joystick TV API endpoints:
+The bot automatically uses the WebSocket endpoint for real-time events:
+
+- `wss://joystick.tv/cable?token=YOUR_BASIC_KEY` - **Automatically connected and listening** for chat, follows, tips, and presence events
+
+You can also manually use other Joystick TV API endpoints:
 
 - `GET/PATCH https://joystick.tv/api/users/stream-settings` - Manage streamer settings
 - `GET https://joystick.tv/api/users/subscriptions` - Get subscriber lists
-- `wss://joystick.tv/cable?token=YOUR_BASIC_KEY` - WebSocket for real-time chat and events
 
-Use your `access_token` from `credentials.json` as a Bearer token in the `Authorization` header.
+For REST API endpoints, use your `access_token` from `credentials.json` as a Bearer token in the `Authorization` header.
 
 ## Troubleshooting
 
@@ -160,6 +183,15 @@ Visit `/status` to see expiration time. Re-authenticate by visiting `/login` to 
 
 ### Credentials file permission denied
 Make sure the application has write permissions to the directory specified by `CREDENTIALS_FILE`.
+
+### WebSocket connection fails with "authentication failed"
+The WebSocket uses basic auth (Client ID:Client Secret in Base64). Ensure your credentials are correct and the bot application is properly configured on Joystick TV.
+
+### No events being logged
+Check that:
+1. The bot application has the necessary permissions configured in Joystick TV
+2. Your stream is active and has activity (chat, follows, etc.)
+3. The WebSocket is connected (you should see "✓ Connected to Joystick TV WebSocket API" in logs)
 
 ## Security Notes
 
