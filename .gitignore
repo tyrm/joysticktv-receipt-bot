@@ -3,6 +3,9 @@ credentials.json
 .env
 .env.local
 
+# Downloaded media
+thumbnails/
+
 # Go build artifacts
 joystick-server
 *.exe
