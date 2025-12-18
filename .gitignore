@@ -1,0 +1,33 @@
+# Credentials and secrets
+credentials.json
+.env
+.env.local
+
+# Go build artifacts
+joystick-server
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+
+# IDE and editor files
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Go modules
+go.sum
+go.mod
+
+# Build artifacts
+bin/
+obj/
+
+# Test coverage
+*.coverprofile
+coverage.out
