@@ -121,6 +121,9 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 		case "reject_subscription":
 			log.Printf("❌ Subscription rejected - authentication failed")
 			return
+		case "welcome":
+			log.Printf("👋 Received welcome message")
+			return
 		case "ping":
 			// Silently ignore ping messages (connection heartbeats)
 			return

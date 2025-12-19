@@ -98,6 +98,22 @@ func (tc *ThumbnailCache) GetThumbnailInfo(username string) (*ThumbnailRecord, e
 	return record, nil
 }
 
+// NeedsRefresh checks if a thumbnail is older than 5 minutes and needs to be re-downloaded
+func (tc *ThumbnailCache) NeedsRefresh(username string) (bool, error) {
+	record, err := tc.GetThumbnailInfo(username)
+	if err != nil {
+		return false, err
+	}
+
+	if record == nil {
+		return false, nil // Doesn't exist, so no refresh needed
+	}
+
+	// Check if more than 5 minutes have passed
+	age := time.Since(record.DownloadTimestamp)
+	return age > 5*time.Minute, nil
+}
+
 // getSubdirectory extracts the first letter of the username for directory organization
 // Returns lowercase first letter, or "other" for edge cases
 func (tc *ThumbnailCache) getSubdirectory(username string) string {
@@ -181,7 +197,7 @@ func (tc *ThumbnailCache) GetFilePath(username, extension string) string {
 	return filepath.Join(tc.cacheDir, subdir, username+extension)
 }
 
-// insertThumbnail stores a thumbnail record in the database
+// insertThumbnail stores a new thumbnail record in the database
 func (tc *ThumbnailCache) insertThumbnail(record *ThumbnailRecord) error {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
@@ -220,8 +236,101 @@ func (tc *ThumbnailCache) insertThumbnail(record *ThumbnailRecord) error {
 	return nil
 }
 
+// updateThumbnail updates an existing thumbnail record in the database
+func (tc *ThumbnailCache) updateThumbnail(record *ThumbnailRecord) error {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+
+	timestamp := record.DownloadTimestamp.Unix()
+
+	result, err := tc.db.Exec(`
+		UPDATE thumbnails
+		SET sha256 = ?, file_size = ?, download_timestamp = ?, image_url = ?, file_extension = ?
+		WHERE username = ?
+	`,
+		record.SHA256,
+		record.FileSize,
+		timestamp,
+		record.ImageURL,
+		record.FileExtension,
+		record.Username,
+	)
+
+	if err != nil {
+		return fmt.Errorf("database update error: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("no thumbnail found to update for user %s", record.Username)
+	}
+
+	return nil
+}
+
+// downloadImageFile downloads an image from a URL and saves it to disk
+// Returns the file path, file size, and SHA256 hash, or error
+func (tc *ThumbnailCache) downloadImageFile(imageURL, username, extension string) (string, int64, string, error) {
+	// Determine the subdirectory path
+	subdir := tc.getSubdirectory(username)
+	subdirPath := filepath.Join(tc.cacheDir, subdir)
+
+	// Create subdirectory if it doesn't exist
+	if err := os.MkdirAll(subdirPath, 0755); err != nil {
+		return "", 0, "", fmt.Errorf("failed to create subdirectory %s: %w", subdirPath, err)
+	}
+
+	// Get full file path
+	filePath := filepath.Join(subdirPath, username+extension)
+
+	// Download the image
+	resp, err := http.Get(imageURL)
+	if err != nil {
+		return "", 0, "", fmt.Errorf("failed to download image from %s: %w", imageURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", 0, "", fmt.Errorf("image download failed with HTTP status %d from %s", resp.StatusCode, imageURL)
+	}
+
+	// Create the file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return "", 0, "", fmt.Errorf("failed to create file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	// Copy the response body to the file
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		// Clean up the partial file on failure
+		os.Remove(filePath)
+		return "", 0, "", fmt.Errorf("failed to write image to file: %w", err)
+	}
+
+	// Get file info for size
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		os.Remove(filePath)
+		return "", 0, "", fmt.Errorf("failed to get file info: %w", err)
+	}
+
+	// Calculate SHA256 hash
+	sha256Hash, err := calculateSHA256(filePath)
+	if err != nil {
+		os.Remove(filePath)
+		return "", 0, "", fmt.Errorf("failed to calculate SHA256: %w", err)
+	}
+
+	return filePath, fileInfo.Size(), sha256Hash, nil
+}
+
 // DownloadAndStore downloads a thumbnail image and stores it in the cache
-// It skips download if the thumbnail already exists
+// It refreshes the thumbnail if it's older than 5 minutes, otherwise skips if already cached
 func (tc *ThumbnailCache) DownloadAndStore(imageURL, username string) error {
 	// Sanitize username
 	if username == "" {
@@ -235,69 +344,56 @@ func (tc *ThumbnailCache) DownloadAndStore(imageURL, username string) error {
 	}
 
 	if exists {
-		log.Printf("ℹ️  Thumbnail already cached for user %s", username)
+		// Check if it needs to be refreshed (older than 5 minutes)
+		needsRefresh, err := tc.NeedsRefresh(username)
+		if err != nil {
+			return fmt.Errorf("failed to check if refresh needed: %w", err)
+		}
+
+		if !needsRefresh {
+			log.Printf("ℹ️  Thumbnail already cached for user %s", username)
+			return nil
+		}
+
+		// Refresh needed - download new version
+		extension := extractExtension(imageURL)
+		filePath, fileSize, sha256Hash, err := tc.downloadImageFile(imageURL, username, extension)
+		if err != nil {
+			return err
+		}
+
+		// Update database record with new information
+		record := &ThumbnailRecord{
+			Username:          username,
+			SHA256:            sha256Hash,
+			FileSize:          fileSize,
+			DownloadTimestamp: time.Now(),
+			ImageURL:          imageURL,
+			FileExtension:     extension,
+		}
+
+		if err := tc.updateThumbnail(record); err != nil {
+			// Clean up the downloaded file if database update fails
+			os.Remove(filePath)
+			return err
+		}
+
+		log.Printf("✓ Thumbnail refreshed: %s (SHA256: %s)", filePath, sha256Hash[:16]+"...")
 		return nil
 	}
 
-	// Extract extension from URL
+	// New download - extract extension and download
 	extension := extractExtension(imageURL)
-
-	// Determine the subdirectory path
-	subdir := tc.getSubdirectory(username)
-	subdirPath := filepath.Join(tc.cacheDir, subdir)
-
-	// Create subdirectory if it doesn't exist
-	if err := os.MkdirAll(subdirPath, 0755); err != nil {
-		return fmt.Errorf("failed to create subdirectory %s: %w", subdirPath, err)
-	}
-
-	// Get full file path
-	filePath := filepath.Join(subdirPath, username+extension)
-
-	// Download the image
-	resp, err := http.Get(imageURL)
+	filePath, fileSize, sha256Hash, err := tc.downloadImageFile(imageURL, username, extension)
 	if err != nil {
-		return fmt.Errorf("failed to download image from %s: %w", imageURL, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("image download failed with HTTP status %d from %s", resp.StatusCode, imageURL)
-	}
-
-	// Create the file
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", filePath, err)
-	}
-	defer file.Close()
-
-	// Copy the response body to the file
-	if _, err := io.Copy(file, resp.Body); err != nil {
-		// Clean up the partial file on failure
-		os.Remove(filePath)
-		return fmt.Errorf("failed to write image to file: %w", err)
-	}
-
-	// Get file info for size
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		os.Remove(filePath)
-		return fmt.Errorf("failed to get file info: %w", err)
-	}
-
-	// Calculate SHA256 hash
-	sha256Hash, err := calculateSHA256(filePath)
-	if err != nil {
-		os.Remove(filePath)
-		return fmt.Errorf("failed to calculate SHA256: %w", err)
+		return err
 	}
 
 	// Create database record
 	record := &ThumbnailRecord{
 		Username:          username,
 		SHA256:            sha256Hash,
-		FileSize:          fileInfo.Size(),
+		FileSize:          fileSize,
 		DownloadTimestamp: time.Now(),
 		ImageURL:          imageURL,
 		FileExtension:     extension,

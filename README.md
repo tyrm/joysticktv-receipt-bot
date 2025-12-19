@@ -189,7 +189,9 @@ The `app.db` SQLite database is the application-wide database that stores all pe
 1. When a WebSocket event arrives with an author's profile image URL, the bot checks if the thumbnail is already cached
 2. If not cached, the image is downloaded in the background and saved to `./thumbcache/{first_letter}/{username}.{ext}`
 3. The file is hashed with SHA256 and metadata is stored in the SQLite database
-4. Subsequent events from the same user will skip re-downloading (marked as "already cached")
+4. Subsequent events from the same user will:
+   - If thumbnail is newer than 5 minutes: Skip download (marked as "already cached")
+   - If thumbnail is older than 5 minutes: Re-download and replace the cached file to ensure it's up-to-date
 
 **Configuration:**
 
@@ -202,6 +204,9 @@ The `app.db` SQLite database is the application-wide database that stores all pe
 - Failed downloads are logged with warnings but don't stop the bot
 - The cache directory is excluded from version control (see `.gitignore`)
 - Database uses WAL (Write-Ahead Logging) mode for better concurrent access
+- **Refresh interval:** Thumbnails are automatically refreshed if they're older than 5 minutes
+  - This ensures profile picture changes are captured while minimizing unnecessary downloads
+  - Each refresh updates the SHA256 hash, file size, and timestamp in the database
 
 ## Next Steps
 
