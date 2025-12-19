@@ -3,8 +3,12 @@ credentials.json
 .env
 .env.local
 
-# Downloaded media
+# Application data
+app.db
+app.db-shm
+app.db-wal
 thumbnails/
+thumbcache/
 
 # Go build artifacts
 joystick-server

@@ -4,11 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -40,6 +38,8 @@ type Server struct {
 	credMutex    sync.RWMutex
 	authStates   map[string]AuthState
 	statesMutex  sync.RWMutex
+	db           *AppDatabase
+	thumbCache   *ThumbnailCache
 }
 
 // NewServer creates a new server instance
@@ -109,44 +109,6 @@ func (s *Server) ConnectToWebSocket() error {
 	}
 }
 
-// downloadThumbnail downloads and saves a signed thumbnail URL to disk
-func (s *Server) downloadThumbnail(imageURL, username string) error {
-	// Create thumbnails directory if it doesn't exist
-	thumbDir := "./thumbnails"
-	if err := os.MkdirAll(thumbDir, 0755); err != nil {
-		return fmt.Errorf("failed to create thumbnails directory: %w", err)
-	}
-
-	// Generate filename with timestamp to handle multiple images per user
-	timestamp := time.Now().Format("20060102_150405")
-	filename := filepath.Join(thumbDir, fmt.Sprintf("%s_%s.png", username, timestamp))
-
-	// Download the image
-	resp, err := http.Get(imageURL)
-	if err != nil {
-		return fmt.Errorf("failed to download image: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("image download failed with status %d", resp.StatusCode)
-	}
-
-	// Save to file
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	defer file.Close()
-
-	if _, err := io.Copy(file, resp.Body); err != nil {
-		return fmt.Errorf("failed to write image to file: %w", err)
-	}
-
-	log.Printf("✓ Thumbnail saved: %s", filename)
-	return nil
-}
-
 // outputEvent formats and outputs received events
 func (s *Server) outputEvent(msg map[string]interface{}) {
 	// Check message type
@@ -165,7 +127,7 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 		}
 	}
 
-	// Check for author photo thumbnail and download it
+	// Check for author photo thumbnail and cache it
 	if message, ok := msg["message"].(map[string]interface{}); ok {
 		if author, ok := message["author"].(map[string]interface{}); ok {
 			if thumbURL, ok := author["signedPhotoThumbUrl"].(string); ok && thumbURL != "" {
@@ -178,12 +140,14 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 					username = "unknown"
 				}
 
-				// Download thumbnail in background to avoid blocking event processing
-				go func() {
-					if err := s.downloadThumbnail(thumbURL, username); err != nil {
-						log.Printf("⚠️  Failed to save thumbnail: %v", err)
-					}
-				}()
+				// Download and cache thumbnail in background to avoid blocking event processing
+				if s.thumbCache != nil {
+					go func() {
+						if err := s.thumbCache.DownloadAndStore(thumbURL, username); err != nil {
+							log.Printf("⚠️  Thumbnail cache error for user %s: %v", username, err)
+						}
+					}()
+				}
 			}
 		}
 	}
@@ -262,6 +226,23 @@ func main() {
 	if err := server.LoadCredentials(); err != nil {
 		log.Printf("⚠️  Failed to load credentials: %v", err)
 	}
+
+	// Initialize application database
+	appDB, err := NewAppDatabase("./app.db")
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize database: %v", err)
+	}
+	server.db = appDB
+	defer appDB.Close()
+	log.Printf("✓ Application database initialized")
+
+	// Initialize thumbnail cache with database connection
+	thumbCache, err := NewThumbnailCache(appDB.GetDB(), "./thumbcache")
+	if err != nil {
+		log.Fatalf("❌ Failed to initialize thumbnail cache: %v", err)
+	}
+	server.thumbCache = thumbCache
+	log.Printf("✓ Thumbnail cache initialized")
 
 	// Check if credentials exist and connect to WebSocket
 	server.credMutex.RLock()

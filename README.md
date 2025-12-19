@@ -14,6 +14,7 @@ A simple Go web server that authenticates with the Joystick TV API using OAuth2 
 - 🌐 Simple web UI for authentication and status checking
 - 🔌 WebSocket connection for real-time event listening
 - 📨 Automatic event output to logs (chat messages, follows, tips, user presence, etc.)
+- 🖼️ Automatic profile thumbnail caching with SHA256 verification
 
 ## Prerequisites
 
@@ -141,6 +142,66 @@ Once authenticated, the bot automatically connects to the Joystick TV WebSocket 
 - **Ping Messages** - Connection heartbeats (unix timestamps)
 
 The bot will automatically reconnect on startup if stored credentials exist.
+
+## Thumbnail Cache
+
+The bot automatically downloads and caches user profile thumbnails extracted from WebSocket events. All thumbnails are stored locally with a SQLite database tracking the cached files for efficient lookup and verification.
+
+**Cache Directory Structure:**
+
+```
+./app.db                  # Application database (stores all app data including thumbnails)
+./thumbcache/
+├── a/                    # Subdirectory for usernames starting with 'a'
+│   └── alice.png
+├── t/
+│   └── tyrm.png
+├── u/
+│   └── unknown.jpg
+└── other/                # Non-alphabetic characters
+    └── 用户123.png
+```
+
+**Features:**
+
+- ✓ Thumbnails organized by first letter of username for efficient lookup
+- ✓ Automatic SHA256 hash calculation for file integrity verification
+- ✓ One thumbnail per user (no duplicate downloads)
+- ✓ Automatic download on first event appearance
+- ✓ SQLite database tracks cache metadata
+- ✓ Persists across application restarts
+
+**Database Schema:**
+
+The `app.db` SQLite database is the application-wide database that stores all persistent data. Currently it includes the thumbnails table:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `username` | TEXT (Primary Key) | Username of the cached profile |
+| `sha256` | TEXT | SHA256 hash of the image file for integrity verification |
+| `file_size` | INTEGER | File size in bytes |
+| `download_timestamp` | INTEGER | Unix timestamp of when the image was downloaded |
+| `image_url` | TEXT | Original signedPhotoThumbUrl from the event |
+| `file_extension` | TEXT | File extension (.png, .jpg, etc.) detected from URL |
+
+**How It Works:**
+
+1. When a WebSocket event arrives with an author's profile image URL, the bot checks if the thumbnail is already cached
+2. If not cached, the image is downloaded in the background and saved to `./thumbcache/{first_letter}/{username}.{ext}`
+3. The file is hashed with SHA256 and metadata is stored in the SQLite database
+4. Subsequent events from the same user will skip re-downloading (marked as "already cached")
+
+**Configuration:**
+
+- **Database location:** `./app.db` (relative to the application directory)
+- **Cache location:** `./thumbcache` (relative to the application directory)
+
+**Notes:**
+
+- Thumbnails are downloaded asynchronously to avoid blocking event processing
+- Failed downloads are logged with warnings but don't stop the bot
+- The cache directory is excluded from version control (see `.gitignore`)
+- Database uses WAL (Write-Ahead Logging) mode for better concurrent access
 
 ## Next Steps
 
