@@ -1,10 +1,11 @@
 module github.com/tyrm/awesomeJoystickProject2
 
-go 1.21
+go 1.24
 
 require (
 	github.com/gorilla/websocket v1.5.1
 	modernc.org/sqlite v1.28.0
+	tyr.codes/golib/receipt v0.0.1
 )
 
 require (
@@ -12,7 +13,10 @@ require (
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/mattn/go-isatty v0.0.16 // indirect
+	github.com/mattn/go-runewidth v0.0.12 // indirect
+	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/rivo/uniseg v0.2.0 // indirect
 	golang.org/x/mod v0.3.0 // indirect
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
@@ -28,3 +32,5 @@ require (
 	modernc.org/strutil v1.1.3 // indirect
 	modernc.org/token v1.0.1 // indirect
 )
+
+replace tyr.codes/golib/receipt v0.0.1 => ../receipt

@@ -173,7 +173,11 @@ The bot automatically downloads and caches user profile thumbnails extracted fro
 
 **Database Schema:**
 
-The `app.db` SQLite database is the application-wide database that stores all persistent data. Currently it includes the thumbnails table:
+The `app.db` SQLite database is the application-wide database that stores all persistent data. It includes two main tables:
+
+### Thumbnails Table
+
+The thumbnails table stores cached profile images:
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -183,6 +187,31 @@ The `app.db` SQLite database is the application-wide database that stores all pe
 | `download_timestamp` | INTEGER | Unix timestamp of when the image was downloaded |
 | `image_url` | TEXT | Original signedPhotoThumbUrl from the event |
 | `file_extension` | TEXT | File extension (.png, .jpg, etc.) detected from URL |
+
+### Stream Events Table
+
+The stream_events table stores **only StreamEvent** messages (tips, follows, device connections, etc.) for detailed logging and analysis:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER (Primary Key) | Auto-incrementing unique identifier for the event record |
+| `received_timestamp` | INTEGER | Unix timestamp of when the event was received |
+| `event_type` | TEXT | Specific stream event type (tipped, Followed, DeviceConnected, StreamStarted, etc.) |
+| `user_who_performed_action` | TEXT (Nullable) | Username of the user who triggered the event (from metadata.who) |
+| `raw_json` | TEXT | Complete raw JSON message as received from the WebSocket |
+
+**Indexes:**
+- `idx_stream_events_timestamp` - For efficient time-based queries
+- `idx_stream_events_type` - For filtering by event type
+- `idx_stream_events_user` - For querying events by user
+
+**What Gets Stored:**
+- ✓ **Stream events only** (tipped, Followed, DeviceConnected, StreamStarted, StreamEnded, WheelSpinClaimed, etc.)
+
+**What Does NOT Get Stored Here:**
+- ✗ Chat messages (ChatMessage) - handled separately
+- ✗ User presence changes (UserPresence) - handled separately
+- ✗ Control messages (ping, welcome, subscriptions) - control flow only
 
 **How It Works:**
 

@@ -60,6 +60,19 @@ func (ad *AppDatabase) initSchema() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_download_timestamp ON thumbnails(download_timestamp);
+
+	-- Stream events table for storing all received WebSocket events
+	CREATE TABLE IF NOT EXISTS stream_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		received_timestamp INTEGER NOT NULL,
+		event_type TEXT NOT NULL,
+		user_who_performed_action TEXT,
+		raw_json TEXT NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_stream_events_timestamp ON stream_events(received_timestamp);
+	CREATE INDEX IF NOT EXISTS idx_stream_events_type ON stream_events(event_type);
+	CREATE INDEX IF NOT EXISTS idx_stream_events_user ON stream_events(user_who_performed_action);
 	`
 
 	if _, err := ad.db.Exec(schema); err != nil {

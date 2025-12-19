@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"tyr.codes/golib/receipt"
 )
 
 // Credentials stores the OAuth token information
@@ -40,6 +41,8 @@ type Server struct {
 	statesMutex  sync.RWMutex
 	db           *AppDatabase
 	thumbCache   *ThumbnailCache
+	eventStore   *StreamEventStore
+	printer      *receipt.Printer
 }
 
 // NewServer creates a new server instance
@@ -51,9 +54,9 @@ func NewServer(clientID, clientSecret, redirectURL, credFile string) *Server {
 		credFile:     credFile,
 		credentials:  &Credentials{},
 		authStates:   make(map[string]AuthState),
+		printer:      receipt.NewPrinter(os.Getenv("RECEIPT_ADDR")),
 	}
 }
-
 
 // ConnectToWebSocket connects to the Joystick TV WebSocket API and listens for events
 func (s *Server) ConnectToWebSocket() error {
@@ -111,7 +114,7 @@ func (s *Server) ConnectToWebSocket() error {
 
 // outputEvent formats and outputs received events
 func (s *Server) outputEvent(msg map[string]interface{}) {
-	// Check message type
+	// Check message type for control messages
 	msgType, ok := msg["type"].(string)
 	if ok {
 		switch msgType {
@@ -128,6 +131,15 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 			// Silently ignore ping messages (connection heartbeats)
 			return
 		}
+	}
+
+	// Store StreamEvent messages in the database (after control messages have returned)
+	if s.eventStore != nil {
+		go func() {
+			if err := s.eventStore.StoreEvent(msg); err != nil {
+				log.Printf("⚠️  Failed to store stream event: %v", err)
+			}
+		}()
 	}
 
 	// Check for author photo thumbnail and cache it
@@ -164,7 +176,6 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 
 	log.Printf("📨 Event received:\n%s", string(eventJSON))
 }
-
 
 // HandleRoot serves a simple home page
 func (s *Server) HandleRoot(w http.ResponseWriter, r *http.Request) {
@@ -246,6 +257,10 @@ func main() {
 	}
 	server.thumbCache = thumbCache
 	log.Printf("✓ Thumbnail cache initialized")
+
+	// Initialize stream event store
+	server.eventStore = NewStreamEventStore(appDB.GetDB())
+	log.Printf("✓ Stream event store initialized")
 
 	// Check if credentials exist and connect to WebSocket
 	server.credMutex.RLock()
