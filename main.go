@@ -46,7 +46,7 @@ type Server struct {
 }
 
 // NewServer creates a new server instance
-func NewServer(clientID, clientSecret, redirectURL, credFile string) *Server {
+func NewServer(clientID, clientSecret, redirectURL, credFile string, printer *receipt.Printer) *Server {
 	return &Server{
 		clientID:     clientID,
 		clientSecret: clientSecret,
@@ -54,7 +54,7 @@ func NewServer(clientID, clientSecret, redirectURL, credFile string) *Server {
 		credFile:     credFile,
 		credentials:  &Credentials{},
 		authStates:   make(map[string]AuthState),
-		printer:      receipt.NewPrinter(os.Getenv("RECEIPT_ADDR")),
+		printer:      printer,
 	}
 }
 
@@ -140,6 +140,15 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 				log.Printf("⚠️  Failed to store stream event: %v", err)
 			}
 		}()
+	}
+
+	// Handle tipped stream events (print receipt notification)
+	if message, ok := msg["message"].(map[string]interface{}); ok {
+		if event, ok := message["event"].(string); ok && event == "StreamEvent" {
+			if eventType, ok := message["type"].(string); ok && eventType == "tipped" {
+				go s.HandleTippedEvent(msg)
+			}
+		}
 	}
 
 	// Check for author photo thumbnail and cache it
@@ -233,8 +242,18 @@ func main() {
 	log.Printf("ℹ️  Redirect URL: %s", redirectURL)
 	log.Printf("ℹ️  Credentials File: %s", credFile)
 
+	// Connect to the printer
+	printer := receipt.NewPrinter(os.Getenv("RECEIPT_ADDR"))
+	fmt.Println("Connecting to printer...")
+	if err := printer.Connect(); err != nil {
+		log.Fatalf("Failed to connect to printer: %v", err)
+	}
+	defer printer.Disconnect()
+
+	fmt.Println("✓ Connected to printer")
+
 	// Create server instance
-	server := NewServer(clientID, clientSecret, redirectURL, credFile)
+	server := NewServer(clientID, clientSecret, redirectURL, credFile, printer)
 
 	// Load existing credentials if available
 	if err := server.LoadCredentials(); err != nil {
