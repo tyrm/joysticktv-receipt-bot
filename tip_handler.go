@@ -36,10 +36,17 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 		return
 	}
 
-	// Extract tip_menu_item
+	// Require tip_menu_item to be populated
 	tipMenuItem, ok := metadata["tip_menu_item"].(string)
 	if !ok || tipMenuItem == "" {
 		return // No tip menu item, skip notification
+	}
+
+	// Extract text field from message (the full tip message)
+	messageText, ok := message["text"].(string)
+	if !ok || messageText == "" {
+		// Fallback to tip menu item if text is not available
+		messageText = tipMenuItem
 	}
 
 	// Extract username from metadata
@@ -48,13 +55,13 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 		username = "Anonymous"
 	}
 
-	// Determine icon path
+	// Determine icon path based on tip menu item
 	iconPath := getIconPath(tipMenuItem)
 
 	// Create and print the notification
 	notification := &template.StreamerNotification{
 		Header:   "New Tip",
-		Message:  tipMenuItem,
+		Message:  messageText,
 		IconPath: iconPath,
 		Username: username,
 	}
@@ -64,7 +71,7 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 		return
 	}
 
-	log.Printf("✓ Tip notification printed for %s: %s", username, tipMenuItem)
+	log.Printf("✓ Tip notification printed for %s: %s", username, messageText)
 }
 
 // getIconPath determines the icon file path for a tip menu item
