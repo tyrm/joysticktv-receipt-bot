@@ -7,13 +7,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"tyr.codes/golib/receipt"
 	"tyr.codes/golib/receipt/template"
 )
 
 // HandleTippedEvent processes a tipped stream event and prints a receipt notification
 func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
-	// Ensure we have a printer
-	if s.printer == nil {
+	// Ensure we have a printer address configured
+	if s.printerAddr == "" {
+		log.Printf("ℹ️  No printer address configured, skipping tip notification")
 		return
 	}
 
@@ -58,6 +60,14 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 	// Determine icon path based on tip menu item
 	iconPath := getIconPath(tipMenuItem)
 
+	// Connect to printer, print notification, then disconnect
+	printer := receipt.NewPrinter(s.printerAddr)
+	if err := printer.Connect(); err != nil {
+		log.Printf("❌ Failed to connect to printer: %v", err)
+		return
+	}
+	defer printer.Disconnect()
+
 	// Create and print the notification
 	notification := &template.StreamerNotification{
 		Header:   "New Tip",
@@ -66,7 +76,7 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 		Username: username,
 	}
 
-	if err := notification.Print(s.printer); err != nil {
+	if err := notification.Print(printer); err != nil {
 		log.Printf("⚠️  Failed to print tip notification: %v", err)
 		return
 	}

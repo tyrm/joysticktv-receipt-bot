@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"tyr.codes/golib/receipt"
 )
 
 // Credentials stores the OAuth token information
@@ -42,11 +41,11 @@ type Server struct {
 	db           *AppDatabase
 	thumbCache   *ThumbnailCache
 	eventStore   *StreamEventStore
-	printer      *receipt.Printer
+	printerAddr  string
 }
 
 // NewServer creates a new server instance
-func NewServer(clientID, clientSecret, redirectURL, credFile string, printer *receipt.Printer) *Server {
+func NewServer(clientID, clientSecret, redirectURL, credFile, printerAddr string) *Server {
 	return &Server{
 		clientID:     clientID,
 		clientSecret: clientSecret,
@@ -54,7 +53,7 @@ func NewServer(clientID, clientSecret, redirectURL, credFile string, printer *re
 		credFile:     credFile,
 		credentials:  &Credentials{},
 		authStates:   make(map[string]AuthState),
-		printer:      printer,
+		printerAddr:  printerAddr,
 	}
 }
 
@@ -242,18 +241,16 @@ func main() {
 	log.Printf("ℹ️  Redirect URL: %s", redirectURL)
 	log.Printf("ℹ️  Credentials File: %s", credFile)
 
-	// Connect to the printer
-	printer := receipt.NewPrinter(os.Getenv("RECEIPT_ADDR"))
-	fmt.Println("Connecting to printer...")
-	if err := printer.Connect(); err != nil {
-		log.Fatalf("Failed to connect to printer: %v", err)
+	// Get printer address from environment (will connect on demand)
+	printerAddr := os.Getenv("RECEIPT_ADDR")
+	if printerAddr != "" {
+		log.Printf("ℹ️  Printer address: %s (will connect on demand)", printerAddr)
+	} else {
+		log.Printf("⚠️  No printer address configured (RECEIPT_ADDR environment variable)")
 	}
-	defer printer.Disconnect()
-
-	fmt.Println("✓ Connected to printer")
 
 	// Create server instance
-	server := NewServer(clientID, clientSecret, redirectURL, credFile, printer)
+	server := NewServer(clientID, clientSecret, redirectURL, credFile, printerAddr)
 
 	// Load existing credentials if available
 	if err := server.LoadCredentials(); err != nil {
