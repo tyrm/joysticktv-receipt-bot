@@ -11,11 +11,11 @@ import (
 	"tyr.codes/golib/receipt/template"
 )
 
-// HandleTippedEvent processes a tipped stream event and prints a receipt notification
-func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
+// HandleFollowedEvent processes a followed stream event and prints a receipt notification
+func (s *Server) HandleFollowedEvent(msg map[string]interface{}) {
 	// Ensure we have a printer address configured
 	if s.printerAddr == "" {
-		log.Printf("ℹ️  No printer address configured, skipping tip notification")
+		log.Printf("ℹ️  No printer address configured, skipping follower notification")
 		return
 	}
 
@@ -25,33 +25,7 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 		return
 	}
 
-	// Extract metadata JSON string
-	metadataStr, ok := message["metadata"].(string)
-	if !ok || metadataStr == "" {
-		return
-	}
-
-	// Parse metadata JSON
-	var metadata map[string]interface{}
-	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
-		log.Printf("⚠️  Failed to parse tip metadata: %v", err)
-		return
-	}
-
-	// Require tip_menu_item to be populated
-	tipMenuItem, ok := metadata["tip_menu_item"].(string)
-	if !ok || tipMenuItem == "" {
-		return // No tip menu item, skip notification
-	}
-
-	// Extract text field from message (the full tip message)
-	messageText, ok := message["text"].(string)
-	if !ok || messageText == "" {
-		// Fallback to tip menu item if text is not available
-		messageText = tipMenuItem
-	}
-
-	// Extract username from author field first
+	// Extract username from author field
 	var username string
 	var img image.Image
 	if author, ok := message["author"].(map[string]interface{}); ok {
@@ -75,10 +49,20 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 		}
 	}
 
-	// Fallback to metadata username if author field didn't work
+	// If we couldn't get username from author, try metadata
 	if username == "" {
-		username, _ = metadata["who"].(string)
+		metadataStr, ok := message["metadata"].(string)
+		if ok && metadataStr != "" {
+			var metadata map[string]interface{}
+			if err := json.Unmarshal([]byte(metadataStr), &metadata); err == nil {
+				if who, ok := metadata["who"].(string); ok && who != "" {
+					username = who
+				}
+			}
+		}
 	}
+
+	// Default to Anonymous if we still don't have a username
 	if username == "" {
 		username = "Anonymous"
 	}
@@ -102,16 +86,16 @@ func (s *Server) HandleTippedEvent(msg map[string]interface{}) {
 
 	// Create and print the notification
 	notification := &template.StreamerNotification{
-		Header:   "New Tip",
-		Message:  messageText,
+		Header:   "New Follower",
+		Message:  "Welcome!",
 		Image:    img,
 		Username: username,
 	}
 
 	if err := notification.Print(printer); err != nil {
-		log.Printf("⚠️  Failed to print tip notification: %v", err)
+		log.Printf("⚠️  Failed to print follower notification: %v", err)
 		return
 	}
 
-	log.Printf("✓ Tip notification printed for %s: %s", username, messageText)
+	log.Printf("✓ Follower notification printed for %s", username)
 }
