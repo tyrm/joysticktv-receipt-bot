@@ -7,9 +7,6 @@ import (
 	"image/png"
 	"log"
 	"os"
-	"path/filepath"
-	"strings"
-
 	"tyr.codes/golib/receipt"
 	"tyr.codes/golib/receipt/template"
 )
@@ -206,44 +203,4 @@ func (s *Server) HandleFollowedEvent(msg map[string]interface{}) {
 	}
 
 	log.Printf("✓ Follower notification printed for %s", username)
-}
-
-// getIconPath determines the icon file path for a tip menu item
-// Returns the path to the icon file, or defaults to joysticktv.png if not found
-func getIconPath(tipMenuItem string) string {
-	// Create a filename from the tip menu item (sanitize it)
-	// Replace spaces with underscores and convert to lowercase
-	filename := strings.ToLower(strings.ReplaceAll(tipMenuItem, " ", "_"))
-	filename = filename + ".png"
-
-	// Check multiple possible icon locations
-	possiblePaths := []string{
-		filepath.Join(".", "icons", filename),
-		filepath.Join(".", "assets", "icons", filename),
-		filepath.Join(".", "static", "icons", filename),
-	}
-
-	// Try to find the icon file
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-
-	// Default to joysticktv.png
-	possibleDefaults := []string{
-		filepath.Join(".", "icons", "joysticktv.png"),
-		filepath.Join(".", "assets", "icons", "joysticktv.png"),
-		filepath.Join(".", "static", "icons", "joysticktv.png"),
-		"joysticktv.png",
-	}
-
-	for _, path := range possibleDefaults {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-
-	// Return default path even if it doesn't exist
-	return "joysticktv.png"
 }
