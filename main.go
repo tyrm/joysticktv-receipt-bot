@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+//go:embed joysticktv.png
+var joysticktv []byte
 
 // Credentials stores the OAuth token information
 type Credentials struct {
@@ -144,8 +148,13 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 	// Handle tipped stream events (print receipt notification)
 	if message, ok := msg["message"].(map[string]interface{}); ok {
 		if event, ok := message["event"].(string); ok && event == "StreamEvent" {
-			if eventType, ok := message["type"].(string); ok && eventType == "tipped" {
-				go s.HandleTippedEvent(msg)
+			if eventType, ok := message["type"].(string); ok {
+				switch eventType {
+				case "tipped":
+					go s.HandleTippedEvent(msg)
+				case "followed":
+					go s.HandleFollowedEvent(msg)
+				}
 			}
 		}
 	}

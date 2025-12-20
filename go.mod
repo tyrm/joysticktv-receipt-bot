@@ -1,4 +1,4 @@
-module github.com/tyrm/awesomeJoystickProject2
+module github.com/tyrm/joysticktv-receipt-bot
 
 go 1.24
 
