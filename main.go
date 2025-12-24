@@ -154,6 +154,8 @@ func (s *Server) outputEvent(msg map[string]interface{}) {
 					go s.HandleTippedEvent(msg)
 				case "followed":
 					go s.HandleFollowedEvent(msg)
+				case "subscribed":
+					go s.HandleSubscribedEvent(msg)
 				}
 			}
 		}

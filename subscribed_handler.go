@@ -11,11 +11,11 @@ import (
 	"tyr.codes/golib/receipt/template"
 )
 
-// HandleFollowedEvent processes a followed stream event and prints a receipt notification
-func (s *Server) HandleFollowedEvent(msg map[string]interface{}) {
+// HandleSubscribedEvent processes a subscribed stream event and prints a receipt notification
+func (s *Server) HandleSubscribedEvent(msg map[string]interface{}) {
 	// Ensure we have a printer address configured
 	if s.printerAddr == "" {
-		log.Printf("ℹ️  No printer address configured, skipping follower notification")
+		log.Printf("ℹ️  No printer address configured, skipping subscription notification")
 		return
 	}
 
@@ -85,23 +85,23 @@ func (s *Server) HandleFollowedEvent(msg map[string]interface{}) {
 	defer printer.Disconnect()
 
 	// Extract message text, fallback to default
-	messageText := "Welcome!"
+	messageText := "Thank you!"
 	if text, ok := message["text"].(string); ok && text != "" {
 		messageText = text
 	}
 
 	// Create and print the notification
 	notification := &template.StreamerNotification{
-		Header:   "New Follower",
+		Header:   "New Subscriber",
 		Message:  messageText,
 		Image:    img,
 		Username: username,
 	}
 
 	if err := notification.Print(printer); err != nil {
-		log.Printf("⚠️  Failed to print follower notification: %v", err)
+		log.Printf("⚠️  Failed to print subscription notification: %v", err)
 		return
 	}
 
-	log.Printf("✓ Follower notification printed for %s", username)
+	log.Printf("✓ Subscription notification printed for %s", username)
 }
